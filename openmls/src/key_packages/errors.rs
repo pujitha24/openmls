@@ -78,12 +78,10 @@ pub enum KeyPackageNewError {
     /// Accessing storage failed.
     #[error("Accessing storage failed.")]
     StorageError,
-    /// The LeafNode capabilities do not advertise the extension used for a
-    /// last-resort marker.
-    #[error(
-        "The LeafNode capabilities do not advertise the {0:?} extension required by a last-resort KeyPackage."
-    )]
-    MissingLastResortCapability(ExtensionType),
+    /// The LeafNode capabilities do not advertise some of the extension types
+    /// used by the KeyPackage (including a last-resort marker).
+    #[error("The LeafNode capabilities do not advertise the KeyPackage extension types {0:?}.")]
+    MissingExtensionCapabilities(Vec<ExtensionType>),
     /// See [`SignatureError`] for more details.
     #[error(transparent)]
     SignatureError(#[from] SignatureError),

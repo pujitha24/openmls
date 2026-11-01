@@ -2215,6 +2215,7 @@ fn unknown_extensions() {
     let required_extensions = &[
         ExtensionType::Unknown(0xff00),
         ExtensionType::Unknown(0xff01),
+        ExtensionType::Unknown(0xff02),
     ];
     let required_capabilities =
         Extension::RequiredCapabilities(RequiredCapabilitiesExtension::new(&[], &[], &[]));

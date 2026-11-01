@@ -382,8 +382,53 @@ fn last_resort_key_package_requires_capability() {
 
     assert_eq!(
         error,
-        KeyPackageNewError::MissingLastResortCapability(last_resort_extension_type())
+        KeyPackageNewError::MissingExtensionCapabilities(vec![last_resort_extension_type()])
     );
+}
+
+/// Building fails early under `CapabilitiesPolicy::Reject` when explicitly set
+/// LeafNode capabilities don't cover the KeyPackage's own extensions, and
+/// succeeds once they do.
+#[openmls_test::openmls_test]
+fn key_package_extensions_require_capabilities() {
+    let provider = &Provider::default();
+    let credential = Credential::from(BasicCredential::new(b"Sasha".to_vec()));
+    let signature_keys = SignatureKeyPair::new(ciphersuite.signature_algorithm()).unwrap();
+    let credential_with_key = CredentialWithKey {
+        signature_key: signature_keys.to_public_vec().into(),
+        credential,
+    };
+    let unknown_type = ExtensionType::Unknown(0xf123);
+    let extensions = Extensions::single(Extension::Unknown(0xf123, UnknownExtension(vec![1])))
+        .expect("unknown extensions are allowed in KeyPackages");
+    let capabilities = |extensions: Vec<ExtensionType>| {
+        Capabilities::builder()
+            .ciphersuites(vec![ciphersuite])
+            .credentials(vec![CredentialType::Basic])
+            .extensions(extensions)
+            .build()
+    };
+
+    let error = KeyPackage::builder()
+        .key_package_extensions(extensions.clone())
+        .leaf_node_capabilities(capabilities(vec![]))
+        .build(
+            ciphersuite,
+            provider,
+            &signature_keys,
+            credential_with_key.clone(),
+        )
+        .expect_err("uncovered KeyPackage extension must fail during KeyPackage creation");
+    assert_eq!(
+        error,
+        KeyPackageNewError::MissingExtensionCapabilities(vec![unknown_type])
+    );
+
+    KeyPackage::builder()
+        .key_package_extensions(extensions)
+        .leaf_node_capabilities(capabilities(vec![unknown_type]))
+        .build(ciphersuite, provider, &signature_keys, credential_with_key)
+        .expect("covered KeyPackage extension must build");
 }
 
 /// Under `CapabilitiesPolicy::Widen`, either set explicitly or implied by
@@ -551,7 +596,16 @@ fn last_resort_key_package() {
             Extensions::single(Extension::Unknown(0xFF00, UnknownExtension(vec![0x00])))
                 .expect("failed to create single-element extensions list"),
         )
-        .leaf_node_capabilities(last_resort_capabilities(ciphersuite))
+        .leaf_node_capabilities(
+            Capabilities::builder()
+                .ciphersuites(vec![ciphersuite])
+                .credentials(vec![CredentialType::Basic])
+                .extensions(vec![
+                    last_resort_extension_type(),
+                    ExtensionType::Unknown(0xFF00),
+                ])
+                .build(),
+        )
         .mark_as_last_resort()
         .build(
             ciphersuite,

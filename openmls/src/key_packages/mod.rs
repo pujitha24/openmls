@@ -621,7 +621,7 @@ impl KeyPackageBuilder {
     /// The leaf node capabilities must advertise support for the corresponding
     /// extension. Unset capabilities, or capabilities under
     /// [`CapabilitiesPolicy::Widen`], are widened to include it. Otherwise,
-    /// building fails with [`KeyPackageNewError::MissingLastResortCapability`].
+    /// building fails with [`KeyPackageNewError::MissingExtensionCapabilities`].
     pub fn mark_as_last_resort(mut self) -> Self {
         self.last_resort = true;
         self
@@ -653,25 +653,30 @@ impl KeyPackageBuilder {
     }
 
     /// Under [`CapabilitiesPolicy::Reject`], fail early if the leaf node
-    /// capabilities don't advertise the extension that carries the last-resort
-    /// marker. Under [`CapabilitiesPolicy::Widen`], it is added along with the
-    /// KeyPackage's other extensions.
-    fn ensure_last_resort_capability(
-        &self,
-        extension_type: ExtensionType,
-    ) -> Result<(), KeyPackageNewError> {
+    /// capabilities don't cover the KeyPackage's non-default extension types.
+    /// Under [`CapabilitiesPolicy::Widen`], they are added when the leaf is
+    /// built.
+    fn ensure_extensions_covered(&self) -> Result<(), KeyPackageNewError> {
         let (capabilities, capabilities_policy) = resolve_capabilities(
             self.leaf_node_capabilities.clone(),
             self.capabilities_policy,
         );
-        if matches!(capabilities_policy, CapabilitiesPolicy::Reject)
-            && !capabilities.extensions().contains(&extension_type)
+        if let (CapabilitiesPolicy::Reject, Some(extensions)) =
+            (capabilities_policy, self.key_package_extensions.as_ref())
         {
-            return Err(KeyPackageNewError::MissingLastResortCapability(
-                extension_type,
-            ));
+            let missing = capabilities.missing_extensions(extensions);
+            if !missing.is_empty() {
+                return Err(KeyPackageNewError::MissingExtensionCapabilities(missing));
+            }
         }
         Ok(())
+    }
+
+    /// Add the last-resort marker (if requested) and check that the leaf node
+    /// capabilities cover the resulting KeyPackage extensions.
+    fn ensure_last_resort(&mut self) -> Result<(), KeyPackageNewError> {
+        self.add_last_resort_marker();
+        self.ensure_extensions_covered()
     }
 
     /// Ensure that a last-resort marker is present in the KeyPackage if the
@@ -681,12 +686,10 @@ impl KeyPackageBuilder {
     /// the component, so that applications can emit both while not all
     /// clients understand the component yet.
     #[cfg(feature = "extensions-draft")]
-    fn ensure_last_resort(&mut self) -> Result<(), KeyPackageNewError> {
+    fn add_last_resort_marker(&mut self) {
         if !self.last_resort {
-            return Ok(());
+            return;
         }
-
-        self.ensure_last_resort_capability(ExtensionType::AppDataDictionary)?;
 
         let mut dictionary = self
             .key_package_extensions
@@ -708,16 +711,13 @@ impl KeyPackageBuilder {
                     .expect("AppDataDictionary extensions are allowed in KeyPackages"),
             );
         }
-        Ok(())
     }
 
     #[cfg(not(feature = "extensions-draft"))]
-    fn ensure_last_resort(&mut self) -> Result<(), KeyPackageNewError> {
+    fn add_last_resort_marker(&mut self) {
         if !self.last_resort {
-            return Ok(());
+            return;
         }
-
-        self.ensure_last_resort_capability(ExtensionType::LastResort)?;
 
         let last_resort_extension = Extension::LastResort(LastResortExtension::default());
         if let Some(extensions) = self.key_package_extensions.as_mut() {
@@ -730,7 +730,6 @@ impl KeyPackageBuilder {
                     .expect("LastResort extensions are allowed in KeyPackages"),
             );
         }
-        Ok(())
     }
 
     #[cfg(test)]

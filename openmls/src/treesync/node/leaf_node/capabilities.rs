@@ -300,6 +300,24 @@ impl Capabilities {
         required.all(|e| supported.contains(&e))
     }
 
+    /// Returns the non-default extension types of `extensions` that these
+    /// [`Capabilities`] don't list.
+    pub(crate) fn missing_extensions(
+        &self,
+        extensions: &Extensions<impl ExtensionValidator>,
+    ) -> Vec<ExtensionType> {
+        let mut missing = Vec::new();
+        for extension_type in extensions.iter().map(Extension::extension_type) {
+            if !extension_type.is_default()
+                && !self.extensions().contains(&extension_type)
+                && !missing.contains(&extension_type)
+            {
+                missing.push(extension_type);
+            }
+        }
+        missing
+    }
+
     /// Check if these [`Capabilities`] contain the extension.
     #[cfg(test)]
     pub(crate) fn contains_extension_type(&self, extension: &ExtensionType) -> bool {
