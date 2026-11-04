@@ -756,8 +756,8 @@ impl PublicGroup {
 
     /// Returns an [`AppDataUpdateValidationError`] if:
     ///   - An [`AppDataUpdateProposal`] appears before a [`GroupContextExtensionProposal`]
-    ///   - The [`GroupContextExtensionProposal`] updates the [`AppDataDictionary`] when the
-    ///     required capabilities include AppDataUpdate proposal type
+    ///   - The [`GroupContextExtensionProposal`] adds, removes or changes the
+    ///     [`AppDataDictionary`]
     ///   - For any [`ComponentId`], the list of [`AppDataUpdateProposal`]s includes both Updates
     ///     and Removes
     ///   - For any [`ComponentId`], the list of [`AppDataUpdateProposal`]s includes more than one
@@ -776,41 +776,17 @@ impl PublicGroup {
             })
             .next();
 
-        // From https://datatracker.ietf.org/doc/html/draft-ietf-mls-extensions#section-4.7-6:
-        // When an MLS group contains the AppDataUpdate proposal type in the proposal_types list in
-        // the group's required_capabilities extension, a GroupContextExtensions proposal MUST NOT
-        // add, remove, or modify the app_data_dictionary GroupContext extension. In other words,
-        // when every member of the group supports the AppDataUpdate proposal, a
-        // GroupContextExtensions proposal could be sent to update some other extension(s), but the
-        // app_data_dictionary GroupContext extension, if it exists, is left as it was.
+        // From draft-ietf-mls-extensions-11, sections 4.6 and 4.7: a GroupContextExtensions
+        // proposal MUST NOT add, remove, or modify the app_data_dictionary GroupContext
+        // extension, whether or not the AppDataUpdate proposal type is listed in the group's
+        // required_capabilities. The dictionary is only changed through AppDataUpdate proposals.
         //
         // This is checked *before* the "no AppDataUpdate proposals" early return below: the rule
         // binds every commit that carries a GroupContextExtensions proposal, including one with no
-        // accompanying AppDataUpdate proposals. Skipping it in that case would let a bare
-        // GroupContextExtensions proposal rewrite the app_data_dictionary directly, bypassing the
-        // AppDataUpdate machinery.
-        //
-        // The rule is treated as active when the group requires AppDataUpdate either before or
-        // after the commit. Reading only the *proposed* required_capabilities would let a sender
-        // evade the check by dropping AppDataUpdate from required_capabilities in the same
-        // proposal; reading only the *current* required_capabilities would skip the migrating
-        // commit that both introduces the dictionary and adds AppDataUpdate.
+        // accompanying AppDataUpdate proposals.
         if let Some(group_context_extension) = group_context_extension_proposal {
-            let current_requires_app_data_update = self
-                .group_context()
-                .extensions()
-                .required_capabilities()
-                .map(|rc| rc.proposal_types().contains(&ProposalType::AppDataUpdate))
-                .unwrap_or(false);
-            let proposed_requires_app_data_update = group_context_extension
-                .extensions()
-                .required_capabilities()
-                .map(|rc| rc.proposal_types().contains(&ProposalType::AppDataUpdate))
-                .unwrap_or(false);
-
-            if (current_requires_app_data_update || proposed_requires_app_data_update)
-                && group_context_extension.extensions().app_data_dictionary()
-                    != self.group_context().extensions().app_data_dictionary()
+            if group_context_extension.extensions().app_data_dictionary()
+                != self.group_context().extensions().app_data_dictionary()
             {
                 return Err(AppDataUpdateValidationError::CannotUpdateDictionaryDirectly);
             }
